@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3-Måneders Opgaveoversigt</title>
+    <style>
+        body { font-family: sans-serif; max-width: 700px; margin: 30px auto; padding: 20px; background: #f4f4f9; color: #333; }
+        h2 { margin-bottom: 20px; text-align: center; }
+        
+        .input-box { display: flex; gap: 8px; margin-bottom: 25px; background: white; padding: 15px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); flex-wrap: wrap; }
+        input[type="text"] { flex: 2; padding: 10px; border: 1px solid #ccc; border-radius: 5px; font-size: 15px; min-width: 200px; }
+        input[type="date"], select { flex: 1; padding: 10px; border: 1px solid #ccc; border-radius: 5px; font-size: 15px; }
+        button.add-btn { padding: 10px 18px; background: #28a745; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 15px; font-weight: bold; }
+        button.add-btn:hover { background: #218838; }
+        
+        .priority-box { background: #fff3cd; border: 1px solid #ffeeba; border-radius: 8px; padding: 15px; margin-bottom: 25px; }
+        .priority-box h3 { margin: 0 0 10px 0; color: #856404; font-size: 16px; display: flex; align-items: center; gap: 6px; }
+
+        .day-section { margin-bottom: 20px; background: white; border-radius: 8px; padding: 15px; box-shadow: 0 2px 4px rgba(0,0,0,0.03); }
+        .day-header { font-size: 16px; font-weight: bold; border-bottom: 2px solid #eef; padding-bottom: 6px; margin-bottom: 10px; color: #2c3e50; text-transform: capitalize; }
+        .today-header { color: #28a745; border-bottom-color: #28a745; }
+        .overdue-header { color: #dc3545; border-bottom-color: #dc3545; }
+        
+        ul { list-style: none; padding: 0; margin: 0; }
+        li { padding: 10px; margin-bottom: 6px; background: #fafafa; border-radius: 5px; display: flex; justify-content: space-between; align-items: center; border: 1px solid #eee; }
+        
+        .task-content { display: flex; align-items: center; gap: 8px; flex: 1; flex-wrap: wrap; }
+        .task-text { font-size: 15px; }
+        .completed .task-text { text-decoration: line-through; color: #888; }
+        
+        .prio-tag { font-size: 11px; padding: 2px 6px; border-radius: 4px; font-weight: bold; text-transform: uppercase; }
+        .prio-høj { background: #f8d7da; color: #721c24; }
+        .prio-medium { background: #fff3cd; color: #856404; }
+        .prio-lav { background: #e2e3e5; color: #383d41; }
+        
+        .countdown-tag { font-size: 11px; padding: 2px 6px; border-radius: 4px; font-weight: bold; }
+        .status-green { background: #e6f4ea; color: #137333; }
+        .status-yellow { background: #fef7e0; color: #b06000; }
+        .status-red { background: #fce8e6; color: #c5221f; }
+        
+        .actions { display: flex; gap: 6px; }
+        .check-btn { background: #e0e0e0; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; }
+        .completed .check-btn { background: #d4edda; color: #155724; }
+        .delete-btn { background: #ff4d4d; color: white; border: none; padding: 5px 8px; border-radius: 4px; cursor: pointer; font-size: 12px; }
+        
+        .empty-msg { font-size: 13px; color: #aaa; font-style: italic; }
+    </style>
+</head>
+<body>
+
+    <h2>📅 3-Måneders Opgaveoversigt</h2>
+
+    <div class="input-box">
+        <input type="text" id="taskInput" placeholder="Skriv din opgave...">
+        <input type="date" id="dateInput">
+        <select id="prioInput">
+            <option value="Lav">Lav Prioritet</option>
+            <option value="Medium" selected>Medium Prioritet</option>
+            <option value="Høj">🔥 Høj Prioritet</option>
+        </select>
+        <button class="add-btn" id="addBtn">Tilføj</button>
+    </div>
+
+    <div class="priority-box" id="priorityBox">
+        <h3>🚨 Opgaver med Høj Prioritet</h3>
+        <div id="priorityList"></div>
+    </div>
+
+    <div id="schedule"></div>
+
+    <!-- Firebase SDK (Modular Version 10+) -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+        import { getFirestore, collection, addDoc, deleteDoc, updateDoc, doc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+
+        // ⚠️ ERSTAT MED DINE FIREBASE NØGLER FRA TRIN 1
+        const firebaseConfig = {
+            apiKey: "PASTE_DIN_API_KEY_HER",
+            authDomain: "PASTE_DIT_PROJECT_ID.firebaseapp.com",
+            projectId: "PASTE_DIT_PROJECT_ID",
+            storageBucket: "PASTE_DIT_PROJECT_ID.appspot.com",
+            messagingSenderId: "PASTE_DIT_SENDER_ID",
+            appId: "PASTE_DIT_APP_ID"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const tasksRef = collection(db, "tasks");
+
+        let tasks = [];
+
+        function formatDateKey(date) {
+            const y = date.getFullYear();
+            const m = String(date.getMonth() + 1).padStart(2, '0');
+            const d = String(date.getDate()).padStart(2, '0');
+            return `${y}-${m}-${d}`;
+        }
+
+        function getDaysRemaining(targetDateStr) {
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            
+            const [year, month, day] = targetDateStr.split('-');
+            const targetDate = new Date(year, month - 1, day);
+            
+            const diffTime = targetDate - today;
+            return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+        }
+
+        function getCountdownBadge(dateStr) {
+            const daysLeft = getDaysRemaining(dateStr);
+            let statusClass = 'status-green';
+            let text = `⏳ ${daysLeft} dage tilbage`;
+
+            if (daysLeft < 0) {
+                statusClass = 'status-red';
+                text = `⚠️ Overskredet med ${Math.abs(daysLeft)} dag(e)`;
+            } else if (daysLeft === 0) {
+                statusClass = 'status-red';
+                text = `🔥 I dag!`;
+            } else if (daysLeft === 1) {
+                statusClass = 'status-yellow';
+                text = `⏳ I morgen`;
+            } else if (daysLeft <= 3) {
+                statusClass = 'status-yellow';
+                text = `⏳ ${daysLeft} dage tilbage`;
+            }
+
+            return `<span class="countdown-tag ${statusClass}">${text}</span>`;
+        }
+
+        function renderSchedule() {
+            const container = document.getElementById('schedule');
+            const priorityContainer = document.getElementById('priorityList');
+            container.innerHTML = '';
+            priorityContainer.innerHTML = '';
+
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            const todayStr = formatDateKey(today);
+
+            const highPrioTasks = tasks.filter(t => t.prio === 'Høj' && !t.done);
+            if (highPrioTasks.length === 0) {
+                priorityContainer.innerHTML = '<div class="empty-msg">Ingen udestående høj-prioritetsopgaver</div>';
+            } else {
+                const pUl = document.createElement('ul');
+                highPrioTasks.forEach(task => {
+                    const [y, m, d] = task.date.split('-');
+                    const countdownBadge = getCountdownBadge(task.date);
+                    
+                    const li = document.createElement('li');
+                    li.innerHTML = `
+                        <div class="task-content">
+                            <span class="task-text"><strong>${task.text}</strong></span>
+                            <span class="prio-tag prio-høj">Høj</span>
+                            ${countdownBadge}
+                            <small style="color:#666;">(📅 ${d}/${m})</small>
+                        </div>
+                        <div class="actions">
+                            <button class="check-btn">Afkryds</button>
+                            <button class="delete-btn">✕</button>
+                        </div>
+                    `;
+                    li.querySelector('.check-btn').addEventListener('click', () => toggleTask(task.id, task.done));
+                    li.querySelector('.delete-btn').addEventListener('click', () => deleteTask(task.id));
+                    pUl.appendChild(li);
+                });
+                priorityContainer.appendChild(pUl);
+            }
+
+            const overdueTasks = tasks.filter(t => t.date < todayStr && !t.done);
+            if (overdueTasks.length > 0) {
+                const section = document.createElement('div');
+                section.className = 'day-section';
+                section.innerHTML = `<div class="day-header overdue-header">⚠️ OVERSKREDNE OPGAVER</div>`;
+                
+                const ul = document.createElement('ul');
+                overdueTasks.forEach(task => {
+                    const [y, m, d] = task.date.split('-');
+                    const countdownBadge = getCountdownBadge(task.date);
+                    
+                    const li = document.createElement('li');
+                    li.innerHTML = `
+                        <div class="task-content">
+                            <span class="task-text">${task.text}</span>
+                            <span class="prio-tag prio-${task.prio.toLowerCase()}">${task.prio}</span>
+                            ${countdownBadge}
+                            <small style="color:#c5221f;">(Fra ${d}/${m})</small>
+                        </div>
+                        <div class="actions">
+                            <button class="check-btn">Afkryds</button>
+                            <button class="delete-btn">✕</button>
+                        </div>
+                    `;
+                    li.querySelector('.check-btn').addEventListener('click', () => toggleTask(task.id, task.done));
+                    li.querySelector('.delete-btn').addEventListener('click', () => deleteTask(task.id));
+                    ul.appendChild(li);
+                });
+                section.appendChild(ul);
+                container.appendChild(section);
+            }
+
+            for (let i = 0; i < 90; i++) {
+                const currentDate = new Date(today);
+                currentDate.setDate(today.getDate() + i);
+                const dateKey = formatDateKey(currentDate);
+
+                const options = { weekday: 'long', day: 'numeric', month: 'long' };
+                let dayLabel = currentDate.toLocaleDateString('da-DK', options);
+                const dayTasks = tasks.filter(t => t.date === dateKey);
+
+                if (dayTasks.length > 0 || i < 7) {
+                    const section = document.createElement('div');
+                    section.className = 'day-section';
+
+                    const isToday = i === 0;
+                    const headerClass = isToday ? 'day-header today-header' : 'day-header';
+                    const headerText = isToday ? `📍 I DAG – ${dayLabel}` : dayLabel;
+
+                    section.innerHTML = `<div class="${headerClass}">${headerText}</div>`;
+
+                    if (dayTasks.length === 0) {
+                        section.innerHTML += `<div class="empty-msg">Ingen opgaver</div>`;
+                    } else {
+                        const ul = document.createElement('ul');
+                        dayTasks.forEach(task => {
+                            const countdownBadge = getCountdownBadge(task.date);
+                            const li = document.createElement('li');
+                            if (task.done) li.className = 'completed';
+                            
+                            li.innerHTML = `
+                                <div class="task-content">
+                                    <span class="task-text">${task.text}</span>
+                                    <span class="prio-tag prio-${task.prio.toLowerCase()}">${task.prio}</span>
+                                    ${countdownBadge}
+                                </div>
+                                <div class="actions">
+                                    <button class="check-btn">${task.done ? '✓ Færdig' : 'Afkryds'}</button>
+                                    <button class="delete-btn">✕</button>
+                                </div>
+                            `;
+                            li.querySelector('.check-btn').addEventListener('click', () => toggleTask(task.id, task.done));
+                            li.querySelector('.delete-btn').addEventListener('click', () => deleteTask(task.id));
+                            ul.appendChild(li);
+                        });
+                        section.appendChild(ul);
+                    }
+                    container.appendChild(section);
+                }
+            }
+        }
+
+        async function addTask() {
+            const textInput = document.getElementById('taskInput');
+            const dateInput = document.getElementById('dateInput');
+            const prioInput = document.getElementById('prioInput');
+
+            if (textInput.value.trim() !== '' && dateInput.value !== '') {
+                await addDoc(tasksRef, {
+                    text: textInput.value.trim(),
+                    date: dateInput.value,
+                    prio: prioInput.value,
+                    done: false
+                });
+                textInput.value = '';
+            } else if (dateInput.value === '') {
+                alert('Vælg venligst en dato for opgaven.');
+            }
+        }
+
+        async function toggleTask(id, currentStatus) {
+            const taskDoc = doc(db, "tasks", id);
+            await updateDoc(taskDoc, { done: !currentStatus });
+        }
+
+        async function deleteTask(id) {
+            const taskDoc = doc(db, "tasks", id);
+            await deleteDoc(taskDoc);
+        }
+
+        // Lytter på ændringer i realtid
+        onSnapshot(tasksRef, (snapshot) => {
+            tasks = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            renderSchedule();
+        });
+
+        document.getElementById('addBtn').addEventListener('click', addTask);
+        document.getElementById('taskInput').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') addTask();
+        });
+
+        document.getElementById('dateInput').value = formatDateKey(new Date());
+    </script>
+</body>
+</html>
